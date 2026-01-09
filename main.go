@@ -18,11 +18,25 @@ const (
 	Yf    = 2 // 10
 )
 
-const MOVECOUNT = 59049 // 3^10
-var s [1048576]byte
-var vis [1048576]bool
+// (2*(9+1)^10)
+// amount of boxes = 9
+// extra twobit for to indicate move (00 for X and 01 for Y)
+const MOVECOUNT = 1048576
 
-func calc(b int, t bool) byte {
+var s [MOVECOUNT]byte
+var vis [MOVECOUNT]bool
+
+var globalRecCount int = 0
+
+func calc(b int) byte {
+	// fmt.Println("state:")
+	// printBinary(b)
+
+	// if globalRecCount > 30 {
+	// 	log.Fatal("finish")
+	// }
+
+	globalRecCount++
 	if vis[b] {
 		return s[b]
 	}
@@ -36,7 +50,14 @@ func calc(b int, t bool) byte {
 		return check
 	}
 
+	t := (b >> (9 * 2)) & 1
+
 	var res byte = Draw // draw
+	if t == 0 {
+		res = 0
+	} else {
+		res = 255
+	}
 
 	for y := 0; y < 3; y++ {
 		for x := 0; x < 3; x++ {
@@ -46,16 +67,17 @@ func calc(b int, t bool) byte {
 			}
 
 			sv := Xf
-			if t == true {
+			if t == 1 {
 				sv = Yf
 			}
 
 			idx := ((3 * y) + x) * 2
 			newb := b | (sv << idx)
+			newb ^= 1 << (9 * 2)
 
-			gameVal := calc(newb, !t)
+			gameVal := calc(newb)
 
-			if t == false {
+			if t == 0 {
 				res = max(res, gameVal)
 			} else {
 				res = min(res, gameVal)
@@ -67,6 +89,40 @@ func calc(b int, t bool) byte {
 	s[b] = res
 
 	return res
+}
+
+type Move struct {
+	Y     int
+	X     int
+	Value byte
+}
+
+func getAvailableMoves(b int) []Move {
+	moves := make([]Move, 0)
+	t := (b >> (9 * 2)) & 1
+	for y := 0; y < 3; y++ {
+		for x := 0; x < 3; x++ {
+			v := getSquare(b, y, x)
+			if v != 0 {
+				continue
+			}
+
+			sv := Xf
+			if t == 1 {
+				sv = Yf
+			}
+
+			idx := ((3 * y) + x) * 2
+			newb := b | (sv << idx)
+			newb ^= 1 << (9 * 2)
+
+			moves = append(moves, Move{
+				y, x, s[newb],
+			})
+		}
+	}
+
+	return moves
 }
 
 func max(a, b byte) byte {
@@ -85,29 +141,24 @@ func min(a, b byte) byte {
 
 func getSquare(b, y, x int) byte {
 	idx := ((3 * y) + x) * 2
-	fb := (b >> idx) & 1
-	sb := (b >> (idx + 1)) & 1
-	if sb == 1 {
-		return Xf
-	} else if fb == 1 {
-		return Yf
-	}
 
-	return 0
+	mask := 0b0011
+	valByte := (b & (mask << idx)) >> idx
+	return byte(valByte)
 }
 
 const (
-	Ywon        = 0
-	Draw        = 1
-	Xwon        = 2
-	NotFinished = 3
+	Ywon        = 1
+	Draw        = 2
+	Xwon        = 3
+	NotFinished = 4
 )
 
 func checkWin(b int) byte {
 	// 1. Check Rows
 	for y := 0; y < 3; y++ {
 		s1 := getSquare(b, y, 0)
-		if s1 != 0 && s1 == getSquare(b, y, 1) && s1 == getSquare(b, y, 2) {
+		if s1 != empty && s1 == getSquare(b, y, 1) && s1 == getSquare(b, y, 2) {
 			if s1 == Xf {
 				return Xwon
 			}
@@ -117,7 +168,7 @@ func checkWin(b int) byte {
 	// 2. Check Columns
 	for x := 0; x < 3; x++ {
 		s1 := getSquare(b, 0, x)
-		if s1 != 0 && s1 == getSquare(b, 1, x) && s1 == getSquare(b, 2, x) {
+		if s1 != empty && s1 == getSquare(b, 1, x) && s1 == getSquare(b, 2, x) {
 			if s1 == Xf {
 				return Xwon
 			}
@@ -126,15 +177,16 @@ func checkWin(b int) byte {
 	}
 	// 3. Check Diagonal (Top-Left to Bottom-Right)
 	sDiag1 := getSquare(b, 0, 0)
-	if sDiag1 != 0 && sDiag1 == getSquare(b, 1, 1) && sDiag1 == getSquare(b, 2, 2) {
+	if sDiag1 != empty && sDiag1 == getSquare(b, 1, 1) && sDiag1 == getSquare(b, 2, 2) {
 		if sDiag1 == Xf {
 			return Xwon
 		}
 		return Ywon
 	}
+
 	// 4. Check Anti-Diagonal (Top-Right to Bottom-Left)
 	sDiag2 := getSquare(b, 0, 2)
-	if sDiag2 != 0 && sDiag2 == getSquare(b, 1, 1) && sDiag2 == getSquare(b, 2, 0) {
+	if sDiag2 != empty && sDiag2 == getSquare(b, 1, 1) && sDiag2 == getSquare(b, 2, 0) {
 		if sDiag2 == Xf {
 			return Xwon
 		}
@@ -143,7 +195,7 @@ func checkWin(b int) byte {
 
 	for y := 0; y < 3; y++ {
 		for x := 0; x < 3; x++ {
-			if getSquare(b, y, x) == 0 {
+			if getSquare(b, y, x) == empty {
 				return NotFinished
 			}
 		}
@@ -167,6 +219,8 @@ func printBoard(b int) {
 		}
 		fmt.Print("\n")
 	}
+	fmt.Println((b >> (9 * 2)) & 1)
+
 }
 
 func readFromInput(reader *bufio.Reader) int {
@@ -202,8 +256,6 @@ func readFromInput(reader *bufio.Reader) int {
 			b |= sbb
 		}
 	}
-	// 10,10,10,10,10,10,01,01,01
-	// 11001100110011001
 
 	// fmt.Println("Whose turn is it[x/y]:")
 	input, err := reader.ReadString('\n')
@@ -211,9 +263,9 @@ func readFromInput(reader *bufio.Reader) int {
 		// fmt.Println("Error reading input:", err)
 		return 0
 	}
-	turn := 0
+	turn := 1
 	if input[0] == 'x' {
-		turn = 1
+		turn = 0
 	}
 	// fmt.Printf("Turn binary: %022b\n", (turn << (9 * 2)))
 	b |= (turn << (9 * 2))
@@ -252,7 +304,38 @@ func main() {
 	printBinary(board)
 	printBoard(board)
 
-	c := calc(board, false)
+	check := checkWin(board)
+	fmt.Println("check:", check)
 
+	c := calc(0)
+	_ = c
+
+	fmt.Println("s[board]", s[board])
+
+	moves := getAvailableMoves(board)
+	fmt.Printf("%+v\n", moves)
+	for _, mv := range moves {
+		fmt.Printf("y=%d, x=%d, value=%d\n", mv.Y, mv.X, mv.Value)
+	}
+
+	for i := 0; i < MOVECOUNT; i++ {
+		if s[i] == Xwon && vis[i] {
+			printBoard(i)
+			fmt.Println()
+		}
+	}
 	fmt.Println(c)
+
+	// limit := 0
+	// for i := 0; i < MOVECOUNT; i++ {
+	// 	check := checkWin(i)
+	// 	if check != NotFinished {
+	// 		printBoard(i)
+	// 		limit++
+	// 	}
+
+	// 	if limit > 100 {
+	// 		break
+	// 	}
+	// }
 }
